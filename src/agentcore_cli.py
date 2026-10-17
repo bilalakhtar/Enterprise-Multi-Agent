@@ -37,6 +37,7 @@ import os
 import shutil
 import subprocess
 import sys
+from typing_extensions import runtime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config  # noqa: E402
@@ -87,10 +88,15 @@ INSTALL_HINT = (
 # ─────────────────────────────────────────────────────
 
 def cli_path() -> str:
-    """Return the path of the `agentcore` executable or raise with install instructions."""
-    path = shutil.which('agentcore')
+    """Return the npm-based Amazon Bedrock AgentCore CLI executable."""
+    path = shutil.which("agentcore.cmd")
+
     if not path:
-        raise RuntimeError(INSTALL_HINT)
+        raise RuntimeError(
+            "The npm-based AgentCore CLI was not found. "
+            "Install it using: npm install -g @aws/agentcore"
+        )
+
     return path
 
 
@@ -252,14 +258,22 @@ def stage_runtime_code() -> str:
 
 def deploy(verbose: bool = False) -> None:
     """
-    Run `agentcore deploy -y` (non-interactive). The CLI packages
-    build/runtime/, synthesizes the CDK stack and creates or updates the
-    AgentCore Runtime; it bootstraps CDK on the first run.
+    Deploy the NovaMart runtime using the npm-based AgentCore CLI.
     """
     if not os.path.isdir(RUNTIME_CODE_DIR):
         stage_runtime_code()
-    print(f"  Running: agentcore deploy -y   (CLI {cli_version()}, region {config.AWS_REGION})", flush=True)
-    args = ['deploy', '-y'] + (['-v'] if verbose else [])
+
+    print(
+        f"  Running: agentcore deploy -y "
+        f"(region {config.AWS_REGION})",
+        flush=True,
+    )
+
+    args = ["deploy", "-y"]
+
+    if verbose:
+        args.append("-v")
+
     run(*args)
 
 

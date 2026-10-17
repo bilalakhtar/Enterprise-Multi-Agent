@@ -58,3 +58,7 @@ customer-key.json
 # AWS credentials and private keys
 .aws/
 *.pem
+# Local AWS deployment and testing artifacts
+agentcore-diff.txt
+agentcore/cdk/bootstrap-template.yaml
+guardrail-test-input.json

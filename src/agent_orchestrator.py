@@ -47,6 +47,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
+import agentcore_cli
+
 # Ensure the parent directory is on sys.path so config.py and
 # bedrock_kb_retrieval.py are importable regardless of where this
 # script is invoked from (e.g. python src/agent_orchestrator.py)
@@ -1488,17 +1490,67 @@ def create_guardrail() -> tuple[str, str]:
     bedrock_client = boto3.client('bedrock', region_name=config.AWS_REGION)
 
     # Check if guardrail already exists to avoid duplicates
-    existing = bedrock_client.list_guardrails()
-    for g in existing.get('guardrails', []):
-        if g['name'] == config.GUARDRAIL_NAME:
-            guardrail_id = g['id']
-            versions = bedrock_client.list_guardrails(guardrailIdentifier=guardrail_id)
-            guardrail_version = 'DRAFT'
-            for v in versions.get('guardrails', []):
-                if v.get('version', 'DRAFT') != 'DRAFT':
-                    guardrail_version = v['version']
-            print(f"Guardrail already exists: {guardrail_id} (version: {guardrail_version})")
+    # Check for an existing guardrail and its published versions
+    next_token = None
+
+    while True:
+        params = {}
+        if next_token:
+            params["nextToken"] = next_token
+
+        existing = bedrock_client.list_guardrails(**params)
+
+        for guardrail in existing.get("guardrails", []):
+            if guardrail["name"] != config.GUARDRAIL_NAME:
+                continue
+
+            guardrail_id = guardrail["id"]
+            published_versions = []
+            version_token = None
+
+            while True:
+                version_params = {
+                    "guardrailIdentifier": guardrail_id
+                }
+
+                if version_token:
+                    version_params["nextToken"] = version_token
+
+                version_response = bedrock_client.list_guardrails(
+                    **version_params
+                )
+
+                published_versions.extend(
+                    int(version["version"])
+                    for version in version_response.get("guardrails", [])
+                    if str(version.get("version", "")).isdigit()
+                )
+
+                version_token = version_response.get("nextToken")
+
+                if not version_token:
+                    break
+
+            if published_versions:
+                guardrail_version = str(max(published_versions))
+            else:
+                version_response = bedrock_client.create_guardrail_version(
+                    guardrailIdentifier=guardrail_id,
+                    description="NovaMart enterprise safety guardrail"
+                )
+                guardrail_version = version_response["version"]
+
+            print(
+                f"Guardrail ready: {guardrail_id} "
+                f"(version: {guardrail_version})"
+            )
+
             return guardrail_id, guardrail_version
+
+        next_token = existing.get("nextToken")
+
+        if not next_token:
+            break
 
     # TODO: Create the guardrail
     # Use bedrock_client.create_guardrail() with:
@@ -1524,8 +1576,114 @@ def create_guardrail() -> tuple[str, str]:
     # bedrock_client.create_guardrail_version(guardrailIdentifier=...)
     # and return (guardrail_id, guardrail_version).
 
-    pass
+    content_filter_strengths = {
+        "SEXUAL": "HIGH",
+        "VIOLENCE": "HIGH",
+        "HATE": "HIGH",
+        "INSULTS": "MEDIUM",
+        "MISCONDUCT": "MEDIUM",
+    }
 
+    content_filters = [
+        {
+            "type": category,
+            "inputStrength": strength,
+            "outputStrength": strength,
+        }
+        for category, strength in content_filter_strengths.items()
+    ]
+
+    pii_entities = [
+        {
+            "type": "CREDIT_DEBIT_CARD_NUMBER",
+            "action": "BLOCK",
+        },
+        {
+            "type": "US_SOCIAL_SECURITY_NUMBER",
+            "action": "BLOCK",
+        },
+        {
+            "type": "EMAIL",
+            "action": "ANONYMIZE",
+        },
+        {
+            "type": "PHONE",
+            "action": "ANONYMIZE",
+        },
+    ]
+
+    topic_definitions = {
+        "competitor products": (
+            "Requests to discuss, recommend, compare, or promote "
+            "products and services sold by competing retailers."
+        ),
+        "pricing negotiations": (
+            "Requests to negotiate, haggle, bargain, or change "
+            "an advertised product price. Excludes ordinary "
+            "arithmetic involving stated prices, quantities, "
+            "discount percentages, or taxes."
+        ),
+        "legal threats": (
+            "Requests involving threats of lawsuits, legal "
+            "action, or litigation against NovaMart."
+        ),
+    }
+
+    denied_topics = [
+        {
+            "name": topic.replace(" ", "_"),
+            "definition": topic_definitions[topic],
+            "type": "DENY",
+        }
+        for topic in config.GUARDRAIL_BLOCKED_TOPICS
+    ]
+    word_policy = {
+        "managedWordListsConfig": [
+            {"type": "PROFANITY"}
+        ]
+    }
+
+    response = bedrock_client.create_guardrail(
+        name=config.GUARDRAIL_NAME,
+        description=(
+            "NovaMart customer support guardrail for "
+            "content safety, PII protection, and denied topics."
+        ),
+        contentPolicyConfig={
+            "filtersConfig": content_filters
+        },
+        sensitiveInformationPolicyConfig={
+            "piiEntitiesConfig": pii_entities
+        },
+        topicPolicyConfig={
+            "topicsConfig": denied_topics,
+            "tierConfig": {
+                "tierName": "STANDARD"
+            },
+        },
+        wordPolicyConfig=word_policy,
+        blockedInputMessaging=(
+            "I'm sorry, but I can't process that request. "
+            "Please rephrase your question."
+        ),
+        blockedOutputsMessaging=(
+            "I'm sorry, but I can't provide that response."
+        ),
+        crossRegionConfig={
+            "guardrailProfileIdentifier": "us.guardrail.v1:0"
+        },
+    )
+
+    guardrail_id = response["guardrailId"]
+
+    version_response = bedrock_client.create_guardrail_version(
+        guardrailIdentifier=guardrail_id,
+        description="NovaMart enterprise safety guardrail v1",
+    )
+
+    guardrail_version = version_response["version"]
+
+    return guardrail_id, guardrail_version
 
 def deploy_to_agentcore_runtime(
     orchestrator_agent: Agent,
@@ -1564,6 +1722,22 @@ def deploy_to_agentcore_runtime(
 
     # Stage the code the CLI packages (src modules + config.py + pyproject.toml).
     agentcore_cli.stage_runtime_code()
+    runtime_env = {
+        "AWS_REGION": config.AWS_REGION,
+        "PROJECT_NAME": config.PROJECT_NAME,
+        "RETURNS_KB_ID": config.RETURNS_KB_ID,
+        "SHIPPING_KB_ID": config.SHIPPING_KB_ID,
+        "WARRANTY_KB_ID": config.WARRANTY_KB_ID,
+        "AGENT_LOG_GROUP": config.AGENT_LOG_GROUP,
+        "GUARDRAIL_ID": guardrail_id,
+        "GUARDRAIL_VERSION": str(guardrail_version),
+    }
+    agentcore_cli.configure_runtime(
+        env_vars=runtime_env,
+        network_mode="PUBLIC",
+        protocol="HTTP",
+        execution_role_arn=config.AGENTCORE_ROLE_ARN,
+    )
 
     # TODO: Configure and deploy the runtime with the AgentCore CLI
     # 1. Build the runtime environment variables dict `runtime_env` with:
@@ -1579,10 +1753,12 @@ def deploy_to_agentcore_runtime(
     # 3. Deploy:  agentcore_cli.deploy()        (runs `agentcore deploy -y`)
     # 4. Read the ARN the CLI recorded:
     #      runtime_arn = agentcore_cli.deployed_runtime_arn()
-    runtime_arn = None
+    agentcore_cli.deploy()
+
+    runtime_arn = agentcore_cli.deployed_runtime_arn()
 
     if not runtime_arn:
-        raise NotImplementedError("deploy_to_agentcore_runtime: AgentCore CLI deployment not implemented")
+        raise RuntimeError("AgentCore deployment completed without returning a Runtime ARN.")
 
     # Wait for the runtime to become READY and return its ARN.
     print(f"  Runtime deployed: {runtime_arn}")
@@ -1590,6 +1766,8 @@ def deploy_to_agentcore_runtime(
     wait_for_runtime_ready(agentcore_control, runtime_arn.split('/')[-1])
     print(' ready.')
     return runtime_arn
+
+
 
 
 # ═══════════════════════════════════════════════════════
@@ -1622,7 +1800,25 @@ def configure_memory(runtime_arn: str) -> str:
     #         'namespaces': ['/summaries/{actorId}/{sessionId}']}}]
     #   - clientToken (e.g. str(uuid.uuid4())) for idempotency
     # Store the API response in `response`.
-    response = None
+    response = agentcore_control.create_memory(
+        name=memory_name,
+        description=(
+            "NovaMart customer support conversational memory "
+            "for maintaining session summaries across interactions."
+        ),
+        eventExpiryDuration=7,
+        memoryStrategies=[
+            {
+                "summaryMemoryStrategy": {
+                    "name": "SessionSummary",
+                    "namespaces": [
+                        "/summaries/{actorId}/{sessionId}"
+                    ],
+                }
+            }
+        ],
+        clientToken=str(uuid.uuid4()),
+    )
 
     if response is None:
         raise NotImplementedError("configure_memory: create_memory() not implemented")
@@ -1671,7 +1867,34 @@ def configure_observability(runtime_arn: str) -> None:
     # and the X-Ray sampling rate; on exception print
     #   "[Note] Observability configuration failed: <e>"
 
-    pass
+    logging_configuration = {
+        "cloudWatchConfig": {
+            "logGroupName": config.AGENT_LOG_GROUP,
+            "logLevel": "INFO",
+            "enabled": True,
+        },
+        "xRayConfig": {
+            "enabled": True,
+            "samplingRate": 1.0,
+        },
+    }
+
+    try:
+        summary = apply_observability_config(
+            runtime_arn,
+            logging_configuration,
+        )
+
+        print("Observability configuration applied successfully.")
+        print(f"  CloudWatch Log Group: {config.AGENT_LOG_GROUP}")
+        print("  CloudWatch Log Level: INFO")
+        print("  X-Ray Tracing: Enabled")
+        print("  X-Ray Sampling Rate: 100%")
+
+    except Exception as error:
+        print(
+            f"[Note] Observability configuration failed: {error}"
+        )
 
 
 # ═══════════════════════════════════════════════════════
