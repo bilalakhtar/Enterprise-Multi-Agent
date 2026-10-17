@@ -62,3 +62,6 @@ customer-key.json
 agentcore-diff.txt
 agentcore/cdk/bootstrap-template.yaml
 guardrail-test-input.json
+
+# Private Udacity submission files
+Udacity_Submission/
