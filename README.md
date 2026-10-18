@@ -187,3 +187,48 @@ The project's CloudWatch/X-Ray sampling is set to **100% for demonstration**; th
 - [Bedrock Knowledge Bases](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html)
 - [Amazon Bedrock Guardrails](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html)
 - [AWS X-Ray](https://docs.aws.amazon.com/xray/latest/devguide/aws-xray.html)
+
+---
+
+## Submission Evidence — Udacity Project 3.3
+
+The following evidence demonstrates the NovaMart multi-agent implementation, AWS deployment, and successful test execution.
+
+### 1. Automated Assessment
+
+**Score: 120/120 (100%)**
+
+- [Full Automated Test Results](screenshots/NovaMart_120_120_Test_Results.png)
+
+### 2. Amazon Bedrock Knowledge Bases
+
+All three Knowledge Bases use Amazon Titan Text Embeddings V2 with Amazon S3 Vectors as the backing store.
+
+| Knowledge Base | Configuration | Data Source Synchronization |
+|---|---|---|
+| Returns | [Embedding and S3 Vectors](screenshots/kb_return_emb.png) | [Sync Results](screenshots/kb_returnsync.png) |
+| Shipping | [Embedding and S3 Vectors](screenshots/kb_shipping_emb.png) | [Sync Results](screenshots/kb_shippingsync.png) |
+| Warranty | [Embedding and S3 Vectors](screenshots/kb_warranty_emb.png) | [Sync Results](screenshots/kb_warrantysync.png) |
+
+Vector indexes: `returns-policy-index`, `shipping-policy-index`, and `warranty-policy-index`.
+
+### 3. End-to-End Multi-Agent Testing
+
+The following screenshots document execution of the customer-support test scenarios using `uv run python src/agent_orchestrator.py test`.
+
+- [Return Request — Inventory Agent](screenshots/test1_return.png)
+- [Refund Policy Processing](screenshots/test2_refundpolicy.png)
+- [Communication Agent](screenshots/test3_commagent.png)
+- [Policy Agent and Parallel RAG](screenshots/test4_policyagent.png)
+- [Policy Response — Communication Agent](screenshots/test5_communcationagent.png)
+- [Discount Calculation](screenshots/test6_communcationagent_calculation.png)
+- [Policy Answer](screenshots/test7_policyanswer.png)
+
+### 4. AWS X-Ray Distributed Tracing
+
+- [AWS X-Ray Service Map](screenshots/NovaMart_XRay_ServiceMap.png)
+
+The Service Map demonstrates the NovaMart-Orchestrator connected to worker agents and Knowledge Base retrieval components.
+
+---
+
