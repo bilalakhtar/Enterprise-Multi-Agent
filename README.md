@@ -141,7 +141,7 @@ GUARDRAIL_VERSION=<published-version>
 AGENTCORE_RUNTIME_ARN=<your-runtime-arn>
 ```
 
-> **Security:** `.env`, AWS access keys, session tokens, local CLI deployment state, and private files must **not** be committed. `.env.example` contains only a template. This repository does not include a populated `.env`.
+> **Environment configuration and security:** This repository includes a populated `.env` containing eight project configuration variables: `AWS_REGION`, `PROJECT_NAME`, `RETURNS_KB_ID`, `SHIPPING_KB_ID`, `WARRANTY_KB_ID`, `AGENTCORE_RUNTIME_ARN`, `GUARDRAIL_ID`, and `GUARDRAIL_VERSION`. These identify the lab's AWS resources and are publicly visible; they are **not** authentication credentials. Do **not** commit AWS access keys, secret access keys, session tokens, passwords, or other sensitive values. `.env.example` provides a reusable template; replace the resource IDs with your own when deploying elsewhere.
 
 ### Deploy and test
 
