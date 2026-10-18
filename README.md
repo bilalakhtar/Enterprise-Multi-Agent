@@ -1,4 +1,4 @@
-# NovaMart — Multi-Agent Customer Support with Amazon Bedrock AgentCore
+# NovaMart — Multi-Agent System with Amazon Bedrock AgentCore
 
 **Udacity AI Agent Engineering · Capstone Project 3.3**  
 **Automated assessment: 120/120 (100%) · Three successful end-to-end scenarios · AWS X-Ray distributed tracing**
